@@ -80,7 +80,7 @@ async function processChunkingAsync(jobId: string, params: ChunkRequest) {
     job.message = "Analyzing audio with VAD...";
     job.progress = 5;
 
-    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL;
 
     if (backendUrl) {
       // Call backend API for chunking
@@ -101,10 +101,10 @@ async function processChunkingAsync(jobId: string, params: ChunkRequest) {
 
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Modal API error: ${error}`);
+        throw new Error(`Backend API error: ${error}`);
       }
 
-      // Stream progress updates from Modal
+      // Stream progress updates from backend
       const reader = response.body?.getReader();
       if (reader) {
         const decoder = new TextDecoder();

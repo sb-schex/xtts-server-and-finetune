@@ -86,22 +86,22 @@ async function runTrainingAsync(
   try {
     job.status = "training";
 
-    const modalApiUrl = process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL;
 
-    if (modalApiUrl) {
-      // Call Modal API for GPU training
-      const response = await fetch(`${modalApiUrl}/api/training/start`, {
+    if (backendUrl) {
+      // Call backend API for GPU training
+      const response = await fetch(`${backendUrl}/api/training/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
 
       if (!response.ok) {
-        throw new Error("Modal training API error");
+        throw new Error("Backend training API error");
       }
 
-      // Stream training progress from Modal
-      // TODO: implement SSE forwarding from Modal
+      // Stream training progress from backend
+      // TODO: implement SSE forwarding from backend
     } else {
       // Simulate training for development
       const stepsPerEpoch = 100;

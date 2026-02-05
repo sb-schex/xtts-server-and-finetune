@@ -1,6 +1,6 @@
 # XTTS Server & Fine-tune
 
-Web UI для fine-tuning и инференса [XTTS v2](https://github.com/coqui-ai/TTS) с использованием [Modal.com](https://modal.com) для GPU вычислений.
+Web UI для fine-tuning и инференса [XTTS v2](https://github.com/coqui-ai/TTS) на локальном GPU сервере.
 
 ## Возможности
 
@@ -12,18 +12,17 @@ Web UI для fine-tuning и инференса [XTTS v2](https://github.com/coq
 ## Технологии
 
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS
-- **Backend:** Modal.com (FastAPI + GPU workers)
+- **Backend:** FastAPI + GPU workers (PyTorch, CUDA)
 - **ML:** XTTS v2, faster-whisper, Silero VAD
 
+## Требования
+
+- **GPU:** NVIDIA с 8GB+ VRAM (рекомендуется 12GB+)
+- **CUDA:** 11.8+ или 12.x
+- **Node.js:** 18+
+- **Python:** 3.11+
+
 ## Быстрый старт
-
-### Требования
-
-- Node.js 18+
-- Python 3.11+
-- [Modal CLI](https://modal.com/docs/guide/cli)
-
-### Установка
 
 ```bash
 # Клонировать репозиторий
@@ -32,20 +31,17 @@ cd xtts-server-and-finetune
 
 # Установить зависимости
 npm install
+pip install -r backend/requirements.txt
 
 # Настроить переменные окружения
 cp .env.example .env.local
-# Отредактировать .env.local
-```
 
-### Запуск
+# Запуск (два терминала)
+./scripts/start-backend.sh   # Terminal 1 → http://localhost:8000
+./scripts/start-frontend.sh  # Terminal 2 → http://localhost:3000
 
-```bash
-# Terminal 1: Frontend
-npm run dev
-
-# Terminal 2: Backend (Modal)
-modal serve modal/app.py
+# Или одной командой:
+./scripts/start-all.sh
 ```
 
 Открыть http://localhost:3000
@@ -56,18 +52,22 @@ modal serve modal/app.py
 
 ```
 ├── app/                  # Next.js страницы и API
+├── backend/              # FastAPI backend
+│   ├── main.py          # Точка входа
+│   ├── workers/         # GPU workers
+│   └── routes/          # API endpoints
 ├── components/           # React компоненты
 │   ├── audio/           # Long Audio Processing
 │   └── ui/              # shadcn/ui
 ├── lib/                 # Утилиты, типы, API клиент
-├── modal/               # Modal backend
-│   └── app.py          # FastAPI + GPU workers
-└── CLAUDE.md           # Контекст проекта для AI
+├── scripts/             # Скрипты запуска
+└── CLAUDE.md            # Контекст проекта для AI
 ```
 
 ## Документация
 
 - [CLAUDE.md](./CLAUDE.md) — контекст проекта
+- [DEPLOY.md](./DEPLOY.md) — деплой на GPU сервер
 - [USAGE.md](./USAGE.md) — руководство пользователя
 
 ## Лицензия

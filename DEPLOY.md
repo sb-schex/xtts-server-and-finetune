@@ -131,9 +131,172 @@ ssh xtts@192.168.1.100
 
 ---
 
-## Этап 1: Подготовка сервера
+## Этап 1: Настройка статического IP
 
-### 1.1 Базовая настройка Ubuntu
+Ubuntu Server использует **Netplan** для настройки сети. Статический IP обеспечивает постоянный адрес сервера.
+
+### 1.1 Определение сетевого интерфейса
+
+```bash
+# Посмотреть список интерфейсов
+ip link show
+
+# Или
+ip a
+
+# Типичные имена:
+# - enp0s3, enp3s0 — Ethernet
+# - eno1 — встроенный Ethernet
+# - eth0 — старый стиль именования
+```
+
+### 1.2 Текущая конфигурация Netplan
+
+```bash
+# Посмотреть существующие файлы конфигурации
+ls -la /etc/netplan/
+
+# Обычно там файл:
+# 00-installer-config.yaml или 01-netcfg.yaml
+```
+
+### 1.3 Настройка статического IP
+
+```bash
+# Создать/редактировать конфигурацию
+sudo nano /etc/netplan/00-installer-config.yaml
+```
+
+**Пример конфигурации:**
+
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp3s0:                    # ← заменить на свой интерфейс
+      dhcp4: false
+      addresses:
+        - 192.168.1.100/24     # ← статический IP / маска подсети
+      routes:
+        - to: default
+          via: 192.168.1.1     # ← шлюз (обычно IP роутера)
+      nameservers:
+        addresses:
+          - 8.8.8.8            # Google DNS
+          - 8.8.4.4
+          - 1.1.1.1            # Cloudflare DNS (резерв)
+```
+
+**Альтернатива с несколькими DNS:**
+
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp3s0:
+      dhcp4: false
+      addresses:
+        - 192.168.1.100/24
+      gateway4: 192.168.1.1    # deprecated но работает
+      nameservers:
+        search: [local]
+        addresses: [8.8.8.8, 8.8.4.4, 77.88.8.8]  # Yandex DNS как резерв
+```
+
+### 1.4 Применение конфигурации
+
+```bash
+# Проверить синтаксис (важно!)
+sudo netplan try
+
+# Если всё ок — применить
+sudo netplan apply
+
+# Проверить результат
+ip addr show enp3s0
+ip route show
+```
+
+### 1.5 Проверка сети
+
+```bash
+# Проверить IP адрес
+ip a | grep "inet "
+
+# Проверить шлюз
+ip route | grep default
+
+# Проверить DNS
+resolvectl status
+# или
+cat /etc/resolv.conf
+
+# Проверить доступ в интернет
+ping -c 3 8.8.8.8
+ping -c 3 google.com
+```
+
+### 1.6 Типичные IP-адреса для локальной сети
+
+| Параметр | Домашняя сеть | Офисная сеть |
+|----------|---------------|--------------|
+| **IP сервера** | 192.168.1.100 | 10.0.0.100 |
+| **Маска** | /24 (255.255.255.0) | /24 |
+| **Шлюз** | 192.168.1.1 | 10.0.0.1 |
+| **DNS** | 8.8.8.8, 8.8.4.4 | корпоративный DNS |
+
+### 1.7 Резервирование IP на роутере (рекомендуется)
+
+Для надёжности также зарезервируйте IP на роутере:
+
+1. Войти в админку роутера (обычно http://192.168.1.1)
+2. Найти раздел DHCP → Address Reservation
+3. Добавить MAC-адрес сервера и желаемый IP
+
+```bash
+# Узнать MAC-адрес
+ip link show enp3s0 | grep ether
+# Пример вывода: link/ether aa:bb:cc:dd:ee:ff
+```
+
+### 1.8 Troubleshooting
+
+**Нет сети после netplan apply:**
+```bash
+# Откатиться (если использовали netplan try)
+# Или перезагрузить сеть
+sudo systemctl restart systemd-networkd
+
+# Крайний случай — перезагрузка
+sudo reboot
+```
+
+**DNS не работает:**
+```bash
+# Проверить systemd-resolved
+sudo systemctl status systemd-resolved
+
+# Перезапустить
+sudo systemctl restart systemd-resolved
+```
+
+**Конфликт IP:**
+```bash
+# Проверить, не занят ли IP другим устройством
+ping 192.168.1.100
+
+# Сканировать сеть (установить nmap)
+sudo apt install nmap
+nmap -sn 192.168.1.0/24
+```
+
+---
+
+## Этап 2: Подготовка сервера
+
+### 2.1 Базовая настройка Ubuntu
 
 ```bash
 # Обновление системы
@@ -153,7 +316,7 @@ sudo ufw allow 443
 sudo ufw enable
 ```
 
-### 1.2 Проверка GPU в системе
+### 2.2 Проверка GPU в системе
 
 ```bash
 # Убедиться что GPU виден системой
@@ -163,7 +326,7 @@ lspci | grep -i nvidia
 # 01:00.0 VGA compatible controller: NVIDIA Corporation GA106 [GeForce RTX 3060] (rev a1)
 ```
 
-### 1.3 Установка NVIDIA драйверов
+### 2.3 Установка NVIDIA драйверов
 
 ```bash
 # Удалить старые драйверы (если есть)
@@ -191,7 +354,7 @@ sudo apt install -y nvidia-driver-535
 sudo reboot
 ```
 
-### 1.4 Проверка драйвера
+### 2.4 Проверка драйвера
 
 ```bash
 # После перезагрузки проверить
@@ -209,7 +372,7 @@ nvidia-smi
 # +-------------------------------+----------------------+----------------------+
 ```
 
-### 1.5 Установка CUDA Toolkit 12.1
+### 2.5 Установка CUDA Toolkit 12.1
 
 ```bash
 # Скачать CUDA 12.1 keyring (network installer — быстрее)
@@ -230,7 +393,7 @@ nvcc --version
 # Ожидается: Cuda compilation tools, release 12.1, V12.1.xxx
 ```
 
-### 1.6 Установка cuDNN
+### 2.6 Установка cuDNN
 
 ```bash
 # cuDNN 8.9 для CUDA 12 (из репозитория NVIDIA)
@@ -240,7 +403,7 @@ sudo apt install -y libcudnn8=8.9.*-1+cuda12.1 libcudnn8-dev=8.9.*-1+cuda12.1
 # https://developer.nvidia.com/cudnn (требует регистрацию)
 ```
 
-### 1.7 Тест CUDA
+### 2.7 Тест CUDA
 
 ```bash
 # Простой тест компиляции и запуска на GPU
@@ -254,7 +417,7 @@ nvcc /tmp/cuda_test.cu -o /tmp/cuda_test && /tmp/cuda_test
 # Ожидается: Hello from GPU!
 ```
 
-### 1.8 Настройка Persistence Mode
+### 2.8 Настройка Persistence Mode
 
 ```bash
 # Включить persistence mode (ускоряет старт GPU операций)
@@ -265,7 +428,7 @@ sudo systemctl enable nvidia-persistenced
 sudo systemctl start nvidia-persistenced
 ```
 
-### 1.9 Итоговая проверка GPU стека
+### 2.9 Итоговая проверка GPU стека
 
 ```bash
 echo "=== System ===" && uname -a
@@ -289,9 +452,9 @@ echo "=== cuDNN ===" && cat /usr/include/cudnn_version.h 2>/dev/null | grep CUDN
 
 ---
 
-## Этап 2: Установка зависимостей
+## Этап 3: Установка зависимостей
 
-### 2.1 Python 3.11
+### 3.1 Python 3.11
 
 ```bash
 # Добавить deadsnakes PPA
@@ -305,7 +468,7 @@ sudo apt install -y python3.11 python3.11-venv python3.11-dev
 sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 ```
 
-### 2.2 Node.js 20 LTS
+### 3.2 Node.js 20 LTS
 
 ```bash
 # NodeSource репозиторий
@@ -317,7 +480,7 @@ node --version  # v20.x.x
 npm --version
 ```
 
-### 2.3 FFmpeg (для аудио)
+### 3.3 FFmpeg (для аудио)
 
 ```bash
 sudo apt install -y ffmpeg libsndfile1
@@ -325,9 +488,9 @@ sudo apt install -y ffmpeg libsndfile1
 
 ---
 
-## Этап 3: Настройка проекта
+## Этап 4: Настройка проекта
 
-### 3.1 Клонирование
+### 4.1 Клонирование
 
 ```bash
 # Создать директорию
@@ -340,7 +503,7 @@ git clone https://github.com/sb-schex/xtts-server-and-finetune.git app
 cd app
 ```
 
-### 3.2 Backend (Python/FastAPI)
+### 4.2 Backend (Python/FastAPI)
 
 ```bash
 cd /opt/xtts/app
@@ -370,7 +533,7 @@ python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
 python -c "import torch; print(f'GPU: {torch.cuda.get_device_name(0)}')"
 ```
 
-### 3.3 Frontend (Next.js)
+### 4.3 Frontend (Next.js)
 
 ```bash
 cd /opt/xtts/app
@@ -382,7 +545,7 @@ npm install
 npm run build
 ```
 
-### 3.4 Создать директории для данных
+### 4.4 Создать директории для данных
 
 ```bash
 sudo mkdir -p /data/xtts/{uploads,datasets,models,outputs,speakers,cache}
@@ -391,9 +554,9 @@ sudo chown -R $USER:$USER /data/xtts
 
 ---
 
-## Этап 4: Конфигурация
+## Этап 5: Конфигурация
 
-### 4.1 Environment файл
+### 5.1 Environment файл
 
 ```bash
 cat > /opt/xtts/app/.env.local << 'EOF'
@@ -415,7 +578,7 @@ CACHE_DIR=/data/xtts/cache
 EOF
 ```
 
-### 4.2 Backend конфигурация
+### 5.2 Backend конфигурация
 
 Создать файл `/opt/xtts/app/backend/config.py`:
 
@@ -442,9 +605,9 @@ os.environ["TTS_HOME"] = str(CACHE_DIR)
 
 ---
 
-## Этап 5: Создание локального Backend
+## Этап 6: Структура Backend
 
-### 5.1 Структура
+### 6.1 Структура
 
 ```
 /opt/xtts/app/
@@ -465,7 +628,7 @@ os.environ["TTS_HOME"] = str(CACHE_DIR)
 │       └── inference.py
 ```
 
-### 5.2 Основной файл backend/main.py
+### 6.2 Основной файл backend/main.py
 
 ```python
 from fastapi import FastAPI
@@ -499,9 +662,9 @@ if __name__ == "__main__":
 
 ---
 
-## Этап 6: Systemd сервисы
+## Этап 7: Systemd сервисы
 
-### 6.1 Backend сервис
+### 7.1 Backend сервис
 
 ```bash
 sudo cat > /etc/systemd/system/xtts-backend.service << 'EOF'
@@ -523,7 +686,7 @@ WantedBy=multi-user.target
 EOF
 ```
 
-### 6.2 Frontend сервис
+### 7.2 Frontend сервис
 
 ```bash
 sudo cat > /etc/systemd/system/xtts-frontend.service << 'EOF'
@@ -546,7 +709,7 @@ WantedBy=multi-user.target
 EOF
 ```
 
-### 6.3 Запуск сервисов
+### 7.3 Запуск сервисов
 
 ```bash
 sudo systemctl daemon-reload
@@ -560,21 +723,21 @@ sudo systemctl status xtts-frontend
 
 ---
 
-## Этап 7: Nginx reverse proxy
+## Этап 8: Nginx reverse proxy
 
-### 7.1 Установка Nginx
+### 8.1 Установка Nginx
 
 ```bash
 sudo apt install -y nginx
 ```
 
-### 7.2 Конфигурация
+### 8.2 Базовая конфигурация (HTTP)
 
 ```bash
 sudo cat > /etc/nginx/sites-available/xtts << 'EOF'
 server {
     listen 80;
-    server_name your-domain.com;  # или IP адрес
+    server_name 192.168.1.100;  # ← ваш IP или домен
 
     # Frontend
     location / {
@@ -613,21 +776,229 @@ EOF
 
 # Активировать конфиг
 sudo ln -s /etc/nginx/sites-available/xtts /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
+sudo rm -f /etc/nginx/sites-enabled/default
 
 # Проверить и перезапустить
 sudo nginx -t
 sudo systemctl restart nginx
 ```
 
-### 7.3 SSL (Let's Encrypt)
+### 8.3 SSL/HTTPS — выбор варианта
+
+| Вариант | Certbot | Предупреждение браузера | Использование |
+|---------|---------|-------------------------|---------------|
+| **Self-signed для IP** | Нет | Да | Локальная сеть |
+| **DuckDNS + Certbot** | Да | Нет | Бесплатный домен |
+| **Свой домен + Certbot** | Да | Нет | Production |
+
+> **Важно:** Let's Encrypt (certbot) **не выдаёт сертификаты для IP-адресов** — только для доменов.
+
+---
+
+### 8.4 Вариант A: Self-signed SSL для IP (локальная сеть)
+
+Для работы по HTTPS без домена — используйте самоподписанный сертификат.
 
 ```bash
-# Установить certbot
-sudo apt install -y certbot python3-certbot-nginx
+# Создать директорию для сертификатов
+sudo mkdir -p /etc/nginx/ssl
 
-# Получить сертификат (заменить домен)
-sudo certbot --nginx -d your-domain.com
+# Сгенерировать self-signed сертификат для IP
+# Заменить 192.168.1.100 на ваш IP!
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/nginx/ssl/selfsigned.key \
+  -out /etc/nginx/ssl/selfsigned.crt \
+  -subj "/CN=192.168.1.100" \
+  -addext "subjectAltName=IP:192.168.1.100"
+
+# Установить права
+sudo chmod 600 /etc/nginx/ssl/selfsigned.key
+```
+
+**Nginx конфиг с HTTPS для IP:**
+
+```bash
+sudo cat > /etc/nginx/sites-available/xtts << 'EOF'
+# Редирект HTTP → HTTPS
+server {
+    listen 80;
+    server_name 192.168.1.100;
+    return 301 https://$host$request_uri;
+}
+
+# HTTPS сервер
+server {
+    listen 443 ssl;
+    server_name 192.168.1.100;
+
+    # SSL сертификаты
+    ssl_certificate /etc/nginx/ssl/selfsigned.crt;
+    ssl_certificate_key /etc/nginx/ssl/selfsigned.key;
+
+    # Современные SSL настройки
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+
+    # Frontend
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Backend API
+    location /api/ {
+        proxy_pass http://localhost:8000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 3600s;
+    }
+
+    # SSE endpoints
+    location ~ ^/api/(data|training)/progress/ {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding off;
+    }
+
+    client_max_body_size 500M;
+}
+EOF
+
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+**Обход предупреждения браузера:**
+- Chrome/Edge: "Advanced" → "Proceed to 192.168.1.100"
+- Firefox: "Accept the Risk and Continue"
+
+**Для curl/Python:**
+```bash
+curl -k https://192.168.1.100/api/health
+```
+
+---
+
+### 8.5 Вариант B: Бесплатный домен + Certbot
+
+#### DuckDNS (рекомендуется)
+
+1. Зарегистрироваться на https://www.duckdns.org (через Google/GitHub)
+2. Создать субдомен, например: `myxtts.duckdns.org`
+3. Указать ваш IP (можно локальный 192.168.1.100)
+
+```bash
+# Установить certbot и плагин
+sudo apt install -y certbot python3-certbot-nginx
+pip install certbot-dns-duckdns
+
+# Создать файл с токеном DuckDNS
+mkdir -p ~/.secrets
+echo "dns_duckdns_token=YOUR-DUCKDNS-TOKEN-HERE" > ~/.secrets/duckdns.ini
+chmod 600 ~/.secrets/duckdns.ini
+
+# Получить сертификат
+sudo certbot certonly \
+  --authenticator dns-duckdns \
+  --dns-duckdns-credentials ~/.secrets/duckdns.ini \
+  --dns-duckdns-propagation-seconds 60 \
+  -d myxtts.duckdns.org
+
+# Сертификаты будут в:
+# /etc/letsencrypt/live/myxtts.duckdns.org/fullchain.pem
+# /etc/letsencrypt/live/myxtts.duckdns.org/privkey.pem
+```
+
+**Nginx конфиг для домена:**
+
+```bash
+sudo cat > /etc/nginx/sites-available/xtts << 'EOF'
+server {
+    listen 80;
+    server_name myxtts.duckdns.org;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name myxtts.duckdns.org;
+
+    ssl_certificate /etc/letsencrypt/live/myxtts.duckdns.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myxtts.duckdns.org/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /api/ {
+        proxy_pass http://localhost:8000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 3600s;
+    }
+
+    location ~ ^/api/(data|training)/progress/ {
+        proxy_pass http://localhost:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Connection '';
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    client_max_body_size 500M;
+}
+EOF
+
+sudo nginx -t && sudo systemctl restart nginx
+```
+
+#### No-IP (альтернатива)
+
+1. Зарегистрироваться на https://www.noip.com
+2. Создать бесплатный хост: `myxtts.ddns.net`
+3. Использовать стандартный certbot:
+
+```bash
+sudo certbot --nginx -d myxtts.ddns.net
+```
+
+---
+
+### 8.6 Вариант C: Свой домен + Certbot
+
+Если есть свой домен, добавьте A-запись в DNS:
+
+```
+xtts.yourdomain.com → 192.168.1.100
+```
+
+И используйте certbot стандартно:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d xtts.yourdomain.com
 
 # Автопродление
 sudo systemctl enable certbot.timer
@@ -635,9 +1006,19 @@ sudo systemctl enable certbot.timer
 
 ---
 
-## Этап 8: Финальная проверка
+### 8.7 Firewall для HTTPS
 
-### 8.1 Чеклист
+```bash
+sudo ufw allow 443/tcp
+sudo ufw reload
+sudo ufw status
+```
+
+---
+
+## Этап 9: Финальная проверка
+
+### 9.1 Чеклист
 
 ```bash
 # GPU работает
@@ -649,14 +1030,20 @@ curl http://localhost:8000/health
 # Frontend работает
 curl http://localhost:3000
 
-# Nginx работает
+# Nginx HTTP работает
 curl http://localhost
+
+# Nginx HTTPS работает (для self-signed добавить -k)
+curl -k https://192.168.1.100/api/health
 
 # Сервисы активны
 sudo systemctl status xtts-backend xtts-frontend nginx
+
+# SSL сертификат (проверка)
+echo | openssl s_client -connect 192.168.1.100:443 2>/dev/null | openssl x509 -noout -dates
 ```
 
-### 8.2 Логи
+### 9.2 Логи
 
 ```bash
 # Backend логи
@@ -672,9 +1059,9 @@ sudo tail -f /var/log/nginx/error.log
 
 ---
 
-## Этап 9: Обслуживание
+## Этап 10: Обслуживание
 
-### 9.1 Обновление кода
+### 10.1 Обновление кода
 
 ```bash
 cd /opt/xtts/app
@@ -684,14 +1071,14 @@ npm run build
 sudo systemctl restart xtts-frontend xtts-backend
 ```
 
-### 9.2 Бэкап данных
+### 10.2 Бэкап данных
 
 ```bash
 # Бэкап директории данных
 tar -czvf /backup/xtts-data-$(date +%Y%m%d).tar.gz /data/xtts/
 ```
 
-### 9.3 Мониторинг GPU
+### 10.3 Мониторинг GPU
 
 ```bash
 # Real-time мониторинг
@@ -705,7 +1092,7 @@ nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader
 
 ## Статус реализации
 
-1. [x] Создать локальный backend (вместо Modal)
+1. [x] Создать локальный backend
    - [x] `backend/main.py`
    - [x] `backend/workers/whisper.py`
    - [x] `backend/workers/inference.py`

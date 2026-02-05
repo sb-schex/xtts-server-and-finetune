@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL;
 
     if (backendUrl) {
       // Call backend API for VAD analysis
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Modal API error: ${error}`);
+        throw new Error(`Backend API error: ${error}`);
       }
 
       const result = await response.json();

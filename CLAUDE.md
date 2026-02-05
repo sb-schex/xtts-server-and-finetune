@@ -2,11 +2,7 @@
 
 ## Обзор проекта
 
-Web UI для fine-tuning и инференса XTTS v2 (Coqui TTS).
-
-**Варианты деплоя:**
-- **Локальный GPU сервер** (RTX 3060 и др.) — рекомендуется
-- **Modal.com** (облако) — legacy
+Web UI для fine-tuning и инференса XTTS v2 (Coqui TTS) на локальном GPU сервере.
 
 **Стек:**
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui
@@ -16,8 +12,6 @@ Web UI для fine-tuning и инференса XTTS v2 (Coqui TTS).
 ---
 
 ## Быстрый старт
-
-### Локальный сервер (рекомендуется)
 
 ```bash
 # 1. Установка зависимостей
@@ -32,14 +26,6 @@ pip install -r backend/requirements.txt
 ./scripts/start-all.sh
 ```
 
-### Modal (облако)
-
-```bash
-npm install
-npm run dev                  # Terminal 1
-modal serve modal/app.py     # Terminal 2
-```
-
 **Авторизация:** admin / xtts2024
 
 ---
@@ -48,44 +34,62 @@ modal serve modal/app.py     # Terminal 2
 
 ```
 .
-├── app/                      # Next.js App Router
-│   ├── (dashboard)/          # Защищённые страницы
-│   │   ├── data-processing/  # Upload + Whisper + Long Audio VAD
-│   │   ├── training/         # Fine-tuning
-│   │   ├── inference/        # TTS генерация
-│   │   └── settings/         # Настройки
-│   ├── api/                  # API routes (proxy to backend)
-│   └── login/                # Страница входа
+├── app/                           # Next.js App Router
+│   ├── layout.tsx                 # Root layout
+│   ├── login/page.tsx             # Страница входа
+│   ├── (dashboard)/               # Защищённые страницы
+│   │   ├── layout.tsx             # Dashboard layout + Navigation
+│   │   ├── page.tsx               # Главная
+│   │   ├── data-processing/       # Upload + Whisper + Long Audio VAD
+│   │   ├── training/              # Fine-tuning
+│   │   ├── inference/             # TTS генерация
+│   │   └── settings/              # Настройки
+│   └── api/                       # API Routes (proxy to backend)
+│       ├── auth/                  # login, logout, check
+│       ├── data/                  # upload, process, analyze, chunk, datasets
+│       ├── training/              # start, progress, models
+│       └── inference/             # generate, speakers, audio
 │
-├── backend/                  # FastAPI Backend (LOCAL GPU)
-│   ├── main.py              # FastAPI приложение
-│   ├── config.py            # Конфигурация
-│   ├── requirements.txt     # Python зависимости
-│   ├── workers/             # GPU workers
-│   │   ├── whisper.py       # Транскрипция
-│   │   ├── inference.py     # TTS генерация
-│   │   ├── vad.py           # VAD + chunking
-│   │   └── training.py      # Fine-tuning
-│   └── routes/              # API endpoints
-│       ├── data.py          # Upload, process, chunk
-│       ├── training.py      # Training jobs
-│       └── inference.py     # TTS generation
-│
-├── modal/                   # Modal Backend (CLOUD)
-│   └── app.py               # Modal workers
+├── backend/                       # FastAPI Backend (GPU)
+│   ├── main.py                    # FastAPI app + CORS
+│   ├── config.py                  # Пути к директориям
+│   ├── requirements.txt           # Python зависимости
+│   ├── routes/
+│   │   ├── data.py                # Upload, process, analyze, chunk
+│   │   ├── training.py            # Training jobs + SSE
+│   │   └── inference.py           # TTS generate, speakers
+│   └── workers/
+│       ├── whisper.py             # WhisperWorker (faster-whisper)
+│       ├── inference.py           # InferenceWorker (XTTS)
+│       ├── vad.py                 # VADWorker (Silero VAD + chunking)
+│       └── training.py            # TrainingWorker (XTTS fine-tune)
 │
 ├── components/
-│   ├── audio/               # Long Audio компоненты
-│   └── ui/                  # shadcn/ui компоненты
+│   ├── Navigation.tsx             # Sidebar навигация
+│   ├── audio/                     # Long Audio компоненты
+│   │   ├── LongAudioProcessor.tsx # Главный компонент chunking
+│   │   ├── AudioWaveform.tsx      # Визуализация waveform
+│   │   ├── AudioRangeSelector.tsx # Выбор диапазона
+│   │   ├── VADSettingsPanel.tsx   # Настройки VAD
+│   │   ├── ChunkStatistics.tsx    # Статистика чанков
+│   │   ├── AudioPlayer.tsx        # Плеер
+│   │   └── AudioTimeInput.tsx     # Ввод времени
+│   └── ui/                        # shadcn/ui компоненты
 │
-├── lib/                     # Утилиты, типы, API клиент
-├── scripts/                 # Скрипты запуска
-│   ├── start-backend.sh
-│   ├── start-frontend.sh
-│   └── start-all.sh
+├── lib/
+│   ├── api.ts                     # API client
+│   ├── auth.ts                    # JWT utilities
+│   ├── types.ts                   # TypeScript типы
+│   └── utils.ts                   # Helpers (cn, formatBytes, formatDuration)
 │
-├── DEPLOY.md                # План деплоя на GPU сервер
-└── USAGE.md                 # Руководство пользователя
+├── scripts/
+│   ├── start-backend.sh           # Запуск FastAPI
+│   ├── start-frontend.sh          # Запуск Next.js
+│   └── start-all.sh               # Запуск всего
+│
+├── middleware.ts                  # Auth middleware
+├── DEPLOY.md                      # Инструкция деплоя на GPU сервер
+└── USAGE.md                       # Руководство пользователя
 ```
 
 ---
@@ -99,13 +103,13 @@ modal serve modal/app.py     # Terminal 2
 | `/health` | GET | Health check + GPU info |
 | `/api/data/upload` | POST | Загрузка файлов |
 | `/api/data/process` | POST | Whisper транскрипция |
-| `/api/data/progress/{id}` | GET (SSE) | Прогресс |
+| `/api/data/progress/{id}` | GET (SSE) | Прогресс обработки |
 | `/api/data/analyze` | POST | VAD preview |
 | `/api/data/chunk` | POST | VAD chunking |
 | `/api/data/chunk/progress/{id}` | GET (SSE) | Прогресс chunking |
 | `/api/data/datasets` | GET | Список датасетов |
 | `/api/training/start` | POST | Запуск обучения |
-| `/api/training/progress/{id}` | GET (SSE) | Метрики |
+| `/api/training/progress/{id}` | GET (SSE) | Метрики обучения |
 | `/api/training/models` | GET | Список моделей |
 | `/api/inference/generate` | POST | TTS генерация |
 | `/api/inference/speakers` | GET | Список голосов |
@@ -124,15 +128,16 @@ AUTH_USER=admin
 AUTH_PASSWORD=xtts2024
 JWT_SECRET=your-secret-key
 
-# Backend (выбрать один)
-BACKEND_URL=http://localhost:8000   # Локальный GPU
-# MODAL_API_URL=https://...          # Modal cloud
+# Backend
+BACKEND_URL=http://localhost:8000
 
 # Директории данных
 UPLOAD_DIR=/data/xtts/uploads
 DATASETS_DIR=/data/xtts/datasets
 OUTPUT_DIR=/data/xtts/outputs
 SPEAKERS_DIR=/data/xtts/speakers
+MODELS_DIR=/data/xtts/models
+CACHE_DIR=/data/xtts/cache
 ```
 
 ---
@@ -151,6 +156,31 @@ SPEAKERS_DIR=/data/xtts/speakers
 
 ---
 
+## Зависимости Backend
+
+```txt
+# Web framework
+fastapi>=0.109.0
+uvicorn>=0.27.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+
+# Audio processing
+pydub>=0.25.1
+soundfile>=0.12.0
+scipy>=1.11.0
+
+# ML
+faster-whisper>=1.0.0
+TTS>=0.22.0
+transformers>=4.36.0,<4.40.0
+
+# PyTorch (install separately)
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+---
+
 ## Технические детали
 
 ### Требования к GPU
@@ -158,13 +188,6 @@ SPEAKERS_DIR=/data/xtts/speakers
 - Минимум 8GB VRAM (рекомендуется 12GB+)
 - CUDA 11.8+ или 12.x
 - cuDNN
-
-### Совместимость PyTorch
-```python
-transformers>=4.36.0,<4.40.0  # BeamSearchScorer удалён в 4.40+
-torch>=2.1.0
-torchaudio>=2.1.0
-```
 
 ### Выходной формат
 - Audio: WAV, 22050 Hz, mono, PCM 16-bit
@@ -193,5 +216,5 @@ npm run lint
 
 ## Документация
 
-- [DEPLOY.md](./DEPLOY.md) — план деплоя на GPU сервер
+- [DEPLOY.md](./DEPLOY.md) — деплой на GPU сервер
 - [USAGE.md](./USAGE.md) — руководство пользователя

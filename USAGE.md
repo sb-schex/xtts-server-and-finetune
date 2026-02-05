@@ -1,6 +1,6 @@
 # XTTS Fine-tuning WebUI — Руководство пользователя
 
-> Веб-интерфейс для дообучения и использования XTTS v2 (Text-to-Speech) моделей с GPU-ускорением на Modal.com
+> Веб-интерфейс для дообучения и использования XTTS v2 (Text-to-Speech) моделей с GPU-ускорением на локальном сервере
 
 ---
 
@@ -43,33 +43,27 @@ XTTS v2 поддерживает 17 языков:
 
 ## Требования
 
-### Локальные требования
+### Аппаратные требования
 
-- **Node.js** 18+ (рекомендуется 20+)
-- **npm** или **yarn**
-- **Python** 3.11+ (для Modal CLI)
-- **Modal CLI** с активным аккаунтом
+- **GPU:** NVIDIA с 8GB+ VRAM (рекомендуется 12GB+)
+- **RAM:** 16GB+ (рекомендуется 32GB)
+- **Диск:** 50GB+ свободного места
 
-### Аккаунт Modal.com
+### Программные требования
 
-1. Зарегистрируйтесь на [modal.com](https://modal.com)
-2. Установите Modal CLI:
-   ```bash
-   pip install modal
-   modal setup
-   ```
-3. Авторизуйтесь:
-   ```bash
-   modal token new
-   ```
+- **ОС:** Ubuntu 22.04 LTS (рекомендуется)
+- **CUDA:** 11.8+ или 12.x
+- **cuDNN:** 8.9+
+- **Node.js:** 18+ (рекомендуется 20+)
+- **Python:** 3.11+
 
-### GPU ресурсы (Modal)
+### Ресурсы GPU
 
-| Задача | GPU | Память | Время |
-|--------|-----|--------|-------|
-| Whisper (транскрипция) | T4 | 16GB | ~1 мин/файл |
-| Training (дообучение) | A10G | 24GB | ~10-60 мин |
-| Inference (генерация) | T4 | 16GB | ~5-15 сек |
+| Задача | Память GPU | Время |
+|--------|------------|-------|
+| Whisper (транскрипция) | ~4GB | ~1 мин/файл |
+| Training (дообучение) | ~10GB | ~10-60 мин |
+| Inference (генерация) | ~4GB | ~5-15 сек |
 
 ---
 
@@ -79,13 +73,17 @@ XTTS v2 поддерживает 17 языков:
 
 ```bash
 git clone <repository-url>
-cd xtts-finetune-webui/xtts-webui-nextjs
+cd xtts-server-and-finetune
 ```
 
 ### 2. Установка зависимостей
 
 ```bash
+# Frontend
 npm install
+
+# Backend
+pip install -r backend/requirements.txt
 ```
 
 ### 3. Настройка переменных окружения
@@ -98,16 +96,14 @@ AUTH_USER=admin
 AUTH_PASSWORD=your_secure_password
 JWT_SECRET=your-random-secret-key-min-32-chars
 
-# Modal API (обновится после первого запуска modal serve)
-MODAL_API_URL=https://your-workspace--xtts-webui-api-api-dev.modal.run
-```
+# Backend API
+BACKEND_URL=http://localhost:8000
 
-### 4. Настройка Modal секретов (опционально)
-
-```bash
-modal secret create xtts-webui-auth \
-  AUTH_USER=admin \
-  AUTH_PASSWORD=your_password
+# Директории данных
+UPLOAD_DIR=/data/xtts/uploads
+DATASETS_DIR=/data/xtts/datasets
+OUTPUT_DIR=/data/xtts/outputs
+SPEAKERS_DIR=/data/xtts/speakers
 ```
 
 ---
@@ -118,29 +114,32 @@ modal secret create xtts-webui-auth \
 
 Откройте **два терминала**:
 
-**Терминал 1 — Frontend (Next.js):**
+**Терминал 1 — Backend (FastAPI):**
 ```bash
-cd xtts-webui-nextjs
-npm run dev
+./scripts/start-backend.sh
+```
+→ API будет доступен на http://localhost:8000
+
+**Терминал 2 — Frontend (Next.js):**
+```bash
+./scripts/start-frontend.sh
 ```
 → Откроется на http://localhost:3000
 
-**Терминал 2 — Backend (Modal):**
+### Или одной командой
+
 ```bash
-cd xtts-webui-nextjs
-modal serve modal/app.py
+./scripts/start-all.sh
 ```
-→ API будет доступен по URL, указанному в выводе
 
 ### Production деплой
 
 ```bash
-# Деплой на Modal (постоянный)
-modal deploy modal/app.py
-
 # Build frontend для production
 npm run build
 npm start
+
+# Backend через systemd (см. DEPLOY.md)
 ```
 
 ---
@@ -239,9 +238,8 @@ npm start
 
 Страница настроек приложения.
 
-- **Theme** — светлая/тёмная тема
-- **Language** — язык интерфейса
-- **API URL** — адрес Modal API
+- **Backend URL** — адрес FastAPI сервера
+- **Storage** — информация о директориях данных
 - **Cache** — очистка кэша
 
 ---
@@ -340,41 +338,40 @@ curl -X POST http://localhost:3000/api/inference/speakers/upload \
 │                     Next.js Application                          │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
 │  │   Pages     │  │  API Routes │  │  Middleware │              │
-│  │  (React)    │  │  (Backend)  │  │   (Auth)    │              │
+│  │  (React)    │  │  (Proxy)    │  │   (Auth)    │              │
 │  └─────────────┘  └─────────────┘  └─────────────┘              │
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Modal.com                                 │
+│                     FastAPI Backend                              │
+│                    http://localhost:8000                         │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    FastAPI Server                        │    │
-│  │              (CPU Container, always-on)                  │    │
+│  │                     GPU Workers                          │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │    │
+│  │  │   Whisper   │  │  Training   │  │  Inference  │      │    │
+│  │  │   Worker    │  │   Worker    │  │   Worker    │      │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘      │    │
 │  └─────────────────────────────────────────────────────────┘    │
-│           │                    │                    │            │
-│           ▼                    ▼                    ▼            │
-│  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐      │
-│  │   Whisper   │      │  Training   │      │  Inference  │      │
-│  │   Worker    │      │   Worker    │      │   Worker    │      │
-│  │   (T4 GPU)  │      │  (A10G GPU) │      │   (T4 GPU)  │      │
-│  └─────────────┘      └─────────────┘      └─────────────┘      │
-│           │                    │                    │            │
-│           └────────────────────┼────────────────────┘            │
-│                                ▼                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    Modal Volumes                         │    │
-│  │  xtts-finetune-data │ xtts-model-cache │ xtts-speakers  │    │
-│  └─────────────────────────────────────────────────────────┘    │
+│                                │                                 │
+│                         ┌──────▼──────┐                         │
+│                         │  NVIDIA GPU │                         │
+│                         │  (CUDA)     │                         │
+│                         └─────────────┘                         │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Local Storage                               │
+│  /data/xtts/                                                     │
+│  ├── uploads/     # Загруженные файлы                           │
+│  ├── datasets/    # Обработанные датасеты                       │
+│  ├── models/      # Обученные модели                            │
+│  ├── outputs/     # Сгенерированное аудио                       │
+│  ├── speakers/    # Референсные голоса                          │
+│  └── cache/       # Кэш моделей                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### Volumes (хранилище)
-
-| Volume | Назначение | Содержимое |
-|--------|------------|------------|
-| `xtts-finetune-data` | Данные | uploads/, datasets/, models/, outputs/ |
-| `xtts-model-cache` | Кэш моделей | XTTS base model, Whisper |
-| `xtts-speakers` | Голоса | WAV файлы референсных голосов |
 
 ---
 
@@ -391,23 +388,22 @@ rm -rf node_modules package-lock.json
 npm install
 ```
 
-### Modal API не отвечает
+### Backend не запускается
 
 ```bash
-# Проверьте статус Modal
-modal app list
+# Проверьте CUDA
+nvidia-smi
 
-# Перезапустите serve
-pkill -f "modal serve"
-modal serve modal/app.py
+# Проверьте Python зависимости
+pip install -r backend/requirements.txt
 
-# Проверьте логи
-modal app logs xtts-webui-api
+# Проверьте порт
+lsof -i :8000
 ```
 
 ### Ошибка "BeamSearchScorer"
 
-Проблема совместимости transformers. Убедитесь что в `modal/app.py` указано:
+Проблема совместимости transformers. Убедитесь что версия:
 ```python
 "transformers>=4.36.0,<4.40.0"
 ```
@@ -435,6 +431,12 @@ torch.load = _patched_torch_load
 - Уменьшите learning rate (попробуйте 1e-6)
 - Проверьте качество транскрипций
 
+### GPU out of memory
+
+- Уменьшите batch_size до 1-2
+- Уменьшите max_audio_length
+- Закройте другие GPU-приложения
+
 ---
 
 ## FAQ
@@ -451,29 +453,29 @@ torch.load = _patched_torch_load
 - Чистая речь без шума и музыки
 - Сегменты по 5-15 секунд
 
-### Сколько стоит использование Modal?
-
-Modal предоставляет $30 бесплатных кредитов ежемесячно. Примерная стоимость:
-- Whisper: ~$0.001/минута аудио
-- Training: ~$0.50-2.00/час (A10G)
-- Inference: ~$0.001/генерация
-
 ### Можно ли использовать свою модель?
 
-Да! Загрузите обученную модель в volume `xtts-finetune-data/models/` и выберите её в интерфейсе.
+Да! Загрузите обученную модель в `/data/xtts/models/` и выберите её в интерфейсе.
 
 ### Поддерживается ли мультиспикер?
 
 XTTS v2 — zero-shot voice cloning модель. Каждый запрос использует референсный WAV для клонирования голоса. Отдельного дообучения для каждого спикера не требуется для базового использования.
+
+### Какой GPU лучше?
+
+| GPU | VRAM | Рекомендация |
+|-----|------|--------------|
+| RTX 3060 | 12GB | Хорошо для inference и обучения |
+| RTX 3080 | 10GB | Быстрое обучение |
+| RTX 4090 | 24GB | Оптимально для всего |
 
 ---
 
 ## Контакты и поддержка
 
 - **Issues:** [GitHub Issues](https://github.com/your-repo/issues)
-- **Документация Modal:** [modal.com/docs](https://modal.com/docs)
 - **Coqui TTS:** [github.com/coqui-ai/TTS](https://github.com/coqui-ai/TTS)
 
 ---
 
-*Последнее обновление: 2026-02-04*
+*Последнее обновление: 2026-02-05*

@@ -13,21 +13,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trash2, HardDrive, RefreshCw } from "lucide-react";
 
-interface VolumeInfo {
+interface StorageInfo {
   name: string;
-  size: string;
-  files: number;
+  path: string;
+  description: string;
 }
 
 export default function SettingsPage() {
-  const [volumes] = useState<VolumeInfo[]>([
-    { name: "xtts-finetune-data", size: "2.4 GB", files: 156 },
-    { name: "xtts-model-cache", size: "8.1 GB", files: 12 },
-    { name: "xtts-speakers", size: "124 MB", files: 8 },
+  const [storageLocations] = useState<StorageInfo[]>([
+    { name: "uploads", path: "/data/xtts/uploads", description: "Загруженные файлы" },
+    { name: "datasets", path: "/data/xtts/datasets", description: "Обработанные датасеты" },
+    { name: "models", path: "/data/xtts/models", description: "Обученные модели" },
+    { name: "speakers", path: "/data/xtts/speakers", description: "Референсные голоса" },
   ]);
 
   const [apiUrl, setApiUrl] = useState(
-    process.env.NEXT_PUBLIC_API_URL || ""
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
   );
 
   return (
@@ -43,18 +44,18 @@ export default function SettingsPage() {
         {/* API Settings */}
         <Card>
           <CardHeader>
-            <CardTitle>API</CardTitle>
+            <CardTitle>Backend API</CardTitle>
             <CardDescription>
-              Настройки подключения к Modal backend
+              Настройки подключения к локальному GPU серверу
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>API URL</Label>
+              <Label>Backend URL</Label>
               <Input
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://your-modal-app.modal.run"
+                placeholder="http://localhost:8000"
               />
             </div>
             <Button variant="outline">
@@ -64,26 +65,26 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Volumes */}
+        {/* Storage */}
         <Card>
           <CardHeader>
             <CardTitle>Хранилище</CardTitle>
             <CardDescription>
-              Modal Volumes и использование места
+              Локальные директории данных
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {volumes.map((volume) => (
+            {storageLocations.map((storage) => (
               <div
-                key={volume.name}
+                key={storage.name}
                 className="flex items-center justify-between p-3 bg-muted rounded-lg"
               >
                 <div className="flex items-center gap-3">
                   <HardDrive className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-sm font-medium">{volume.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {volume.size} / {volume.files} файлов
+                    <p className="text-sm font-medium">{storage.description}</p>
+                    <p className="text-xs text-muted-foreground font-mono">
+                      {storage.path}
                     </p>
                   </div>
                 </div>
@@ -114,12 +115,12 @@ export default function SettingsPage() {
                 <span>large-v3</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">GPU (Training)</span>
-                <span>A10G</span>
+                <span className="text-muted-foreground">Backend</span>
+                <span>Local GPU</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">GPU (Inference)</span>
-                <span>T4</span>
+                <span className="text-muted-foreground">Framework</span>
+                <span>FastAPI + PyTorch</span>
               </div>
             </div>
           </CardContent>

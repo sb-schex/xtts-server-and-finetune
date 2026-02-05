@@ -61,8 +61,8 @@ async function processFilesAsync(
     job.status = "processing";
     job.message = "Starting Whisper transcription...";
 
-    // Use local backend or Modal API
-    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
+    // Use local backend API
+    const backendUrl = process.env.BACKEND_URL;
 
     if (backendUrl) {
       // Call backend API for GPU processing

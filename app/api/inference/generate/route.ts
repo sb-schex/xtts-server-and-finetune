@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL;
 
     if (backendUrl) {
       // Call backend API for GPU inference
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!response.ok) {
-        throw new Error("Modal inference API error");
+        throw new Error("Backend inference API error");
       }
 
       const result = await response.json();
