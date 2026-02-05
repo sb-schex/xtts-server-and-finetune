@@ -3,8 +3,20 @@
 ## Целевая конфигурация
 
 - **ОС:** Ubuntu 22.04 LTS Server
-- **GPU:** NVIDIA RTX 3060 12GB
+- **GPU:** NVIDIA RTX 3060 12GB (MSI Ventus 3x OC)
 - **Проект:** XTTS Server & Fine-tune WebUI
+
+---
+
+## Источники для скачивания
+
+| Компонент | Ссылка | Версия |
+|-----------|--------|--------|
+| **Ubuntu Server** | https://ubuntu.com/download/server | 22.04.4 LTS |
+| **Ubuntu ISO (прямая)** | https://releases.ubuntu.com/22.04/ubuntu-22.04.4-live-server-amd64.iso | 2.6 GB |
+| **NVIDIA Driver** | https://www.nvidia.com/Download/index.aspx | 535.x |
+| **CUDA Toolkit** | https://developer.nvidia.com/cuda-12-1-0-download-archive | 12.1 |
+| **cuDNN** | https://developer.nvidia.com/cudnn | 8.9.x |
 
 ---
 
@@ -24,6 +36,97 @@
 │                                        │  12GB VRAM  │      │
 │                                        └─────────────┘      │
 └─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Этап 0: Установка Ubuntu 22.04 LTS Server
+
+### 0.1 Подготовка загрузочной флешки
+
+**На Linux/Mac:**
+```bash
+# Скачать ISO
+wget https://releases.ubuntu.com/22.04/ubuntu-22.04.4-live-server-amd64.iso
+
+# Записать на флешку (замени /dev/sdX на свою флешку!)
+# ВНИМАНИЕ: это сотрёт все данные на флешке
+lsblk  # найти флешку
+sudo dd if=ubuntu-22.04.4-live-server-amd64.iso of=/dev/sdX bs=4M status=progress sync
+```
+
+**На Windows:**
+- Скачать [Rufus](https://rufus.ie/) или [balenaEtcher](https://etcher.balena.io/)
+- Выбрать ISO файл и флешку
+- Нажать "Start"
+
+### 0.2 Установка системы
+
+1. **Загрузка с флешки**
+   - Вставить флешку в сервер
+   - При загрузке нажать F2/F12/Del (зависит от материнской платы)
+   - Выбрать загрузку с USB
+
+2. **Язык и клавиатура**
+   ```
+   Language: English (рекомендуется для серверов)
+   Keyboard: Russian или English (US)
+   ```
+
+3. **Тип установки**
+   ```
+   ☑ Ubuntu Server — полная установка
+   ```
+
+4. **Настройка сети**
+   ```
+   Рекомендуется статический IP:
+   - Subnet: 192.168.1.0/24 (или ваша сеть)
+   - Address: 192.168.1.100
+   - Gateway: 192.168.1.1
+   - DNS: 8.8.8.8, 8.8.4.4
+   ```
+
+5. **Разметка диска** (пример для NVMe 500GB)
+   ```
+   /boot/efi   512 MB    EFI System Partition
+   /boot       1 GB      ext4
+   swap        16 GB     (равно RAM или 1.5x RAM)
+   /           100 GB    ext4 (система)
+   /data       остаток   ext4 (данные XTTS, модели, датасеты)
+   ```
+
+6. **Профиль пользователя**
+   ```
+   Your name: xtts
+   Server name: xtts-server
+   Username: xtts
+   Password: [надёжный пароль, минимум 12 символов]
+   ```
+
+7. **SSH сервер**
+   ```
+   ☑ Install OpenSSH server
+   ☐ Import SSH identity (можно настроить позже)
+   ```
+
+8. **Дополнительные пакеты**
+   ```
+   Ничего не выбирать — установим вручную
+   ```
+
+9. **Завершение**
+   - Дождаться установки (~10-15 минут)
+   - "Remove installation medium" → извлечь флешку
+   - Reboot
+
+### 0.3 Первое подключение
+
+```bash
+# Подключиться по SSH с другого компьютера
+ssh xtts@192.168.1.100
+
+# Или если на том же компьютере — войти локально
 ```
 
 ---
@@ -50,53 +153,138 @@ sudo ufw allow 443
 sudo ufw enable
 ```
 
-### 1.2 Установка NVIDIA драйверов
+### 1.2 Проверка GPU в системе
+
+```bash
+# Убедиться что GPU виден системой
+lspci | grep -i nvidia
+
+# Ожидаемый вывод:
+# 01:00.0 VGA compatible controller: NVIDIA Corporation GA106 [GeForce RTX 3060] (rev a1)
+```
+
+### 1.3 Установка NVIDIA драйверов
 
 ```bash
 # Удалить старые драйверы (если есть)
-sudo apt remove --purge nvidia-* -y
+sudo apt purge nvidia-* -y
 sudo apt autoremove -y
 
+# Перезагрузка перед установкой новых драйверов
+sudo reboot
+```
+
+После перезагрузки:
+
+```bash
 # Добавить репозиторий NVIDIA
 sudo add-apt-repository ppa:graphics-drivers/ppa -y
 sudo apt update
 
-# Установить драйвер (535 - стабильная версия для RTX 3060)
+# Посмотреть рекомендуемый драйвер
+ubuntu-drivers devices
+
+# Установить драйвер 535 (стабильная версия для RTX 3060)
 sudo apt install -y nvidia-driver-535
 
-# Перезагрузка
+# Перезагрузка для загрузки модуля драйвера
 sudo reboot
 ```
 
-### 1.3 Проверка GPU
+### 1.4 Проверка драйвера
 
 ```bash
-# Должен показать RTX 3060
+# После перезагрузки проверить
 nvidia-smi
 
 # Ожидаемый вывод:
 # +-----------------------------------------------------------------------------+
-# | NVIDIA-SMI 535.xx       Driver Version: 535.xx       CUDA Version: 12.x    |
+# | NVIDIA-SMI 535.xx.xx    Driver Version: 535.xx.xx    CUDA Version: 12.2    |
+# |-------------------------------+----------------------+----------------------+
 # | GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
 # | Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
-# |   0  NVIDIA GeForce RTX 3060  Off | ...               |                      |
-# +-----------------------------------------------------------------------------+
+# |===============================+======================+======================|
+# |   0  NVIDIA GeForce RTX 3060  Off  | 00000000:01:00.0 Off |                  N/A |
+# |  0%   35C    P8     9W / 170W |      0MiB / 12288MiB |      0%      Default |
+# +-------------------------------+----------------------+----------------------+
 ```
 
-### 1.4 Установка CUDA Toolkit
+### 1.5 Установка CUDA Toolkit 12.1
 
 ```bash
-# CUDA 12.1 (совместим с PyTorch 2.x)
-wget https://developer.download.nvidia.com/compute/cuda/12.1.0/local_installers/cuda_12.1.0_530.30.02_linux.run
-sudo sh cuda_12.1.0_530.30.02_linux.run --toolkit --silent
+# Скачать CUDA 12.1 keyring (network installer — быстрее)
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+
+# Установить CUDA 12.1 toolkit (без драйвера — он уже установлен)
+sudo apt install -y cuda-toolkit-12-1
 
 # Добавить в PATH
 echo 'export PATH=/usr/local/cuda-12.1/bin:$PATH' >> ~/.bashrc
 echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
 source ~/.bashrc
 
-# Проверка
+# Проверка версии CUDA
 nvcc --version
+# Ожидается: Cuda compilation tools, release 12.1, V12.1.xxx
+```
+
+### 1.6 Установка cuDNN
+
+```bash
+# cuDNN 8.9 для CUDA 12 (из репозитория NVIDIA)
+sudo apt install -y libcudnn8=8.9.*-1+cuda12.1 libcudnn8-dev=8.9.*-1+cuda12.1
+
+# Если пакет не найден, скачать вручную с NVIDIA:
+# https://developer.nvidia.com/cudnn (требует регистрацию)
+```
+
+### 1.7 Тест CUDA
+
+```bash
+# Простой тест компиляции и запуска на GPU
+cat > /tmp/cuda_test.cu << 'EOF'
+#include <stdio.h>
+__global__ void hello() { printf("Hello from GPU!\n"); }
+int main() { hello<<<1,1>>>(); cudaDeviceSynchronize(); return 0; }
+EOF
+
+nvcc /tmp/cuda_test.cu -o /tmp/cuda_test && /tmp/cuda_test
+# Ожидается: Hello from GPU!
+```
+
+### 1.8 Настройка Persistence Mode
+
+```bash
+# Включить persistence mode (ускоряет старт GPU операций)
+sudo nvidia-smi -pm 1
+
+# Сделать постоянным через systemd
+sudo systemctl enable nvidia-persistenced
+sudo systemctl start nvidia-persistenced
+```
+
+### 1.9 Итоговая проверка GPU стека
+
+```bash
+echo "=== System ===" && uname -a
+echo "=== NVIDIA Driver ===" && nvidia-smi --query-gpu=driver_version --format=csv,noheader
+echo "=== CUDA ===" && nvcc --version | grep release
+echo "=== GPU Memory ===" && nvidia-smi --query-gpu=memory.total --format=csv,noheader
+echo "=== cuDNN ===" && cat /usr/include/cudnn_version.h 2>/dev/null | grep CUDNN_MAJOR -A 2 || echo "Check: dpkg -l | grep cudnn"
+
+# Ожидаемый результат:
+# === System ===
+# Linux xtts-server 5.15.0-xxx-generic ... x86_64 GNU/Linux
+# === NVIDIA Driver ===
+# 535.xx.xx
+# === CUDA ===
+# Cuda compilation tools, release 12.1
+# === GPU Memory ===
+# 12288 MiB
+# === cuDNN ===
+# #define CUDNN_MAJOR 8
 ```
 
 ---
@@ -515,18 +703,20 @@ nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader
 
 ---
 
-## TODO: Требуется реализовать
+## Статус реализации
 
-1. [ ] Создать локальный backend (вместо Modal)
-   - [ ] `backend/main.py`
-   - [ ] `backend/workers/whisper.py`
-   - [ ] `backend/workers/inference.py`
-   - [ ] `backend/workers/vad.py`
-   - [ ] `backend/workers/training.py`
+1. [x] Создать локальный backend (вместо Modal)
+   - [x] `backend/main.py`
+   - [x] `backend/workers/whisper.py`
+   - [x] `backend/workers/inference.py`
+   - [x] `backend/workers/vad.py`
+   - [x] `backend/workers/training.py`
 
-2. [ ] Обновить Next.js API routes для работы с локальным backend
+2. [x] Обновить Next.js API routes для работы с локальным backend
 
 3. [ ] Тестирование на сервере
+
+4. [ ] Настройка production (systemd, nginx, SSL)
 
 ---
 
