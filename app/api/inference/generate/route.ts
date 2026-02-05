@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const modalApiUrl = process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
 
-    if (modalApiUrl) {
-      // Call Modal API for GPU inference
-      const response = await fetch(`${modalApiUrl}/api/inference/generate`, {
+    if (backendUrl) {
+      // Call backend API for GPU inference
+      const response = await fetch(`${backendUrl}/api/inference/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),

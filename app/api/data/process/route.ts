@@ -61,34 +61,64 @@ async function processFilesAsync(
     job.status = "processing";
     job.message = "Starting Whisper transcription...";
 
-    const modalApiUrl = process.env.MODAL_API_URL;
+    // Use local backend or Modal API
+    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
 
-    if (modalApiUrl) {
-      // Call Modal API for GPU processing
-      const response = await fetch(`${modalApiUrl}/api/data/process`, {
+    if (backendUrl) {
+      // Call backend API for GPU processing
+      const response = await fetch(`${backendUrl}/api/data/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ files, language }),
       });
 
       if (!response.ok) {
-        throw new Error("Modal API error");
+        throw new Error("Backend API error");
       }
 
-      const result = await response.json();
-      job.status = "completed";
-      job.progress = 100;
-      job.message = "Processing complete";
-      job.result = result;
+      const data = await response.json();
+
+      // Subscribe to SSE progress if job started
+      if (data.jobId) {
+        const eventSource = new EventSource(`${backendUrl}/api/data/progress/${data.jobId}`);
+
+        eventSource.onmessage = (event) => {
+          try {
+            const update = JSON.parse(event.data);
+            job.progress = update.progress || job.progress;
+            job.message = update.message || job.message;
+
+            if (update.status === "completed") {
+              job.status = "completed";
+              job.result = update.result;
+              eventSource.close();
+            } else if (update.status === "failed") {
+              job.status = "failed";
+              job.error = update.error;
+              eventSource.close();
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource.close();
+        };
+      } else {
+        // Direct result
+        job.status = "completed";
+        job.progress = 100;
+        job.message = "Processing complete";
+        job.result = data.result || data;
+      }
     } else {
-      // Simulate processing for development
+      // Simulate processing for development (no backend)
       const totalFiles = files.length;
 
       for (let i = 0; i < totalFiles; i++) {
         job.progress = Math.round(((i + 1) / totalFiles) * 100);
         job.message = `Processing file ${i + 1}/${totalFiles}: ${files[i].filename}`;
-
-        // Simulate processing time
         await new Promise((r) => setTimeout(r, 2000));
       }
 
@@ -99,7 +129,7 @@ async function processFilesAsync(
         datasetId: jobId.slice(0, 8),
         filesProcessed: totalFiles,
         language,
-        segments: files.map((f, i) => ({
+        segments: files.map((f) => ({
           audioId: f.id,
           filename: f.filename,
           transcription: `[Simulated transcription for ${f.filename}]`,

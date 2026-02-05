@@ -2,28 +2,42 @@
 
 ## Обзор проекта
 
-Web UI для fine-tuning и инференса XTTS v2 (Coqui TTS) с использованием Modal.com для GPU вычислений.
+Web UI для fine-tuning и инференса XTTS v2 (Coqui TTS).
+
+**Варианты деплоя:**
+- **Локальный GPU сервер** (RTX 3060 и др.) — рекомендуется
+- **Modal.com** (облако) — legacy
 
 **Стек:**
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui
-- **Backend:** Modal.com (FastAPI + GPU workers)
+- **Backend:** FastAPI + GPU workers (PyTorch, CUDA)
 - **ML:** XTTS v2, Whisper (faster-whisper), Silero VAD
 
 ---
 
 ## Быстрый старт
 
+### Локальный сервер (рекомендуется)
+
 ```bash
-# Установка зависимостей
+# 1. Установка зависимостей
 npm install
+pip install -r backend/requirements.txt
 
-# Frontend (Terminal 1)
-npm run dev
-# → http://localhost:3000
+# 2. Запуск (два терминала)
+./scripts/start-backend.sh   # → http://localhost:8000
+./scripts/start-frontend.sh  # → http://localhost:3000
 
-# Backend (Terminal 2)
-modal serve modal/app.py
-# → https://[user]--xtts-webui-api-api-dev.modal.run
+# Или одной командой:
+./scripts/start-all.sh
+```
+
+### Modal (облако)
+
+```bash
+npm install
+npm run dev                  # Terminal 1
+modal serve modal/app.py     # Terminal 2
 ```
 
 **Авторизация:** admin / xtts2024
@@ -40,124 +54,122 @@ modal serve modal/app.py
 │   │   ├── training/         # Fine-tuning
 │   │   ├── inference/        # TTS генерация
 │   │   └── settings/         # Настройки
-│   ├── api/                  # API routes
-│   │   ├── auth/             # JWT авторизация
-│   │   ├── data/             # Upload, process, analyze, chunk
-│   │   ├── training/         # Start, progress, models
-│   │   └── inference/        # Generate, speakers
+│   ├── api/                  # API routes (proxy to backend)
 │   └── login/                # Страница входа
 │
+├── backend/                  # FastAPI Backend (LOCAL GPU)
+│   ├── main.py              # FastAPI приложение
+│   ├── config.py            # Конфигурация
+│   ├── requirements.txt     # Python зависимости
+│   ├── workers/             # GPU workers
+│   │   ├── whisper.py       # Транскрипция
+│   │   ├── inference.py     # TTS генерация
+│   │   ├── vad.py           # VAD + chunking
+│   │   └── training.py      # Fine-tuning
+│   └── routes/              # API endpoints
+│       ├── data.py          # Upload, process, chunk
+│       ├── training.py      # Training jobs
+│       └── inference.py     # TTS generation
+│
+├── modal/                   # Modal Backend (CLOUD)
+│   └── app.py               # Modal workers
+│
 ├── components/
-│   ├── audio/                # Long Audio компоненты
-│   │   ├── AudioWaveform.tsx     # wavesurfer.js визуализация
-│   │   ├── AudioRangeSelector.tsx
-│   │   ├── AudioPlayer.tsx
-│   │   ├── VADSettingsPanel.tsx
-│   │   ├── ChunkStatistics.tsx
-│   │   └── LongAudioProcessor.tsx
-│   ├── ui/                   # shadcn/ui компоненты
-│   └── Navigation.tsx
+│   ├── audio/               # Long Audio компоненты
+│   └── ui/                  # shadcn/ui компоненты
 │
-├── lib/
-│   ├── types.ts              # TypeScript типы
-│   ├── auth.ts               # JWT (jose)
-│   ├── api.ts                # API клиент + SSE
-│   └── utils.ts              # Утилиты
+├── lib/                     # Утилиты, типы, API клиент
+├── scripts/                 # Скрипты запуска
+│   ├── start-backend.sh
+│   ├── start-frontend.sh
+│   └── start-all.sh
 │
-├── modal/
-│   └── app.py                # Modal backend
-│       ├── api()             # FastAPI сервер
-│       ├── whisper_worker()  # T4 GPU - транскрипция
-│       ├── training_worker() # A10G GPU - обучение
-│       ├── inference_worker()# T4 GPU - TTS генерация
-│       └── vad_chunking_worker() # T4 GPU - VAD + chunking
-│
-├── middleware.ts             # JWT middleware
-├── package.json
-├── tailwind.config.ts
-└── tsconfig.json
+├── DEPLOY.md                # План деплоя на GPU сервер
+└── USAGE.md                 # Руководство пользователя
 ```
 
 ---
 
-## Ключевые функции
+## Backend API
 
-### 1. Data Processing
-- Загрузка аудио файлов (WAV, MP3, FLAC, OGG)
-- Транскрипция через Whisper (faster-whisper)
-- **Long Audio Processing:**
-  - Waveform визуализация (wavesurfer.js)
-  - Выбор диапазона (start/end)
-  - VAD разбиение по паузам (Silero VAD)
-  - Настраиваемые параметры (min/target/max duration)
-  - Опциональная авто-транскрипция
-
-### 2. Training
-- Fine-tuning XTTS v2
-- Real-time метрики через SSE
-- Сохранение чекпоинтов
-
-### 3. Inference
-- Генерация речи с клонированием голоса
-- Настройки: temperature, speed, top_k, top_p
-- Audio player с прогрессом
-
----
-
-## API Routes
+### Endpoints
 
 | Route | Метод | Описание |
 |-------|-------|----------|
-| `/api/auth/login` | POST | JWT авторизация |
+| `/health` | GET | Health check + GPU info |
 | `/api/data/upload` | POST | Загрузка файлов |
 | `/api/data/process` | POST | Whisper транскрипция |
+| `/api/data/progress/{id}` | GET (SSE) | Прогресс |
 | `/api/data/analyze` | POST | VAD preview |
 | `/api/data/chunk` | POST | VAD chunking |
-| `/api/data/chunk/progress/[id]` | GET (SSE) | Прогресс |
+| `/api/data/chunk/progress/{id}` | GET (SSE) | Прогресс chunking |
+| `/api/data/datasets` | GET | Список датасетов |
 | `/api/training/start` | POST | Запуск обучения |
-| `/api/training/progress/[id]` | GET (SSE) | Метрики |
+| `/api/training/progress/{id}` | GET (SSE) | Метрики |
+| `/api/training/models` | GET | Список моделей |
 | `/api/inference/generate` | POST | TTS генерация |
+| `/api/inference/speakers` | GET | Список голосов |
 
----
+### Swagger UI
 
-## Modal Workers
-
-| Worker | GPU | Timeout | Назначение |
-|--------|-----|---------|------------|
-| `whisper_worker` | T4 | 1h | Транскрипция |
-| `training_worker` | A10G | 2h | Fine-tuning |
-| `inference_worker` | T4 | 10m | TTS |
-| `vad_chunking_worker` | T4 | 1h | VAD + chunking |
+http://localhost:8000/docs
 
 ---
 
 ## Переменные окружения
 
 ```env
+# Authentication
 AUTH_USER=admin
 AUTH_PASSWORD=xtts2024
 JWT_SECRET=your-secret-key
-MODAL_API_URL=https://[user]--xtts-webui-api-api-dev.modal.run
+
+# Backend (выбрать один)
+BACKEND_URL=http://localhost:8000   # Локальный GPU
+# MODAL_API_URL=https://...          # Modal cloud
+
+# Директории данных
+UPLOAD_DIR=/data/xtts/uploads
+DATASETS_DIR=/data/xtts/datasets
+OUTPUT_DIR=/data/xtts/outputs
+SPEAKERS_DIR=/data/xtts/speakers
 ```
+
+---
+
+## Workers
+
+| Worker | Назначение | Модель |
+|--------|------------|--------|
+| `WhisperWorker` | Транскрипция | faster-whisper large-v3 |
+| `InferenceWorker` | TTS генерация | XTTS v2 |
+| `VADWorker` | VAD + chunking | Silero VAD |
+| `TrainingWorker` | Fine-tuning | XTTS v2 |
+
+### Singleton паттерн
+Все workers используют singleton для экономии памяти GPU. Модели загружаются lazy при первом использовании.
 
 ---
 
 ## Технические детали
 
-### Совместимость
-- `transformers>=4.36.0,<4.40.0` — BeamSearchScorer удалён в 4.40+
-- `torchcodec` — требуется для torchaudio
-- Патч `torch.load` с `weights_only=False` для TTS
+### Требования к GPU
+- NVIDIA GPU с CUDA support
+- Минимум 8GB VRAM (рекомендуется 12GB+)
+- CUDA 11.8+ или 12.x
+- cuDNN
 
-### Выходной формат чанков
-- WAV, 22050 Hz, mono, PCM 16-bit
-- Именование: chunk_001.wav, chunk_002.wav, ...
-- metadata.json с транскрипциями
+### Совместимость PyTorch
+```python
+transformers>=4.36.0,<4.40.0  # BeamSearchScorer удалён в 4.40+
+torch>=2.1.0
+torchaudio>=2.1.0
+```
 
-### Modal Volumes
-- `xtts-finetune-data` — данные, датасеты, модели
-- `xtts-model-cache` — кэш XTTS модели
-- `xtts-speakers` — speaker WAV файлы
+### Выходной формат
+- Audio: WAV, 22050 Hz, mono, PCM 16-bit
+- Chunks: chunk_001.wav, chunk_002.wav, ...
+- Metadata: metadata.json
 
 ---
 
@@ -165,12 +177,13 @@ MODAL_API_URL=https://[user]--xtts-webui-api-api-dev.modal.run
 
 ```bash
 # Разработка
-npm run dev              # Frontend dev server
-modal serve modal/app.py # Backend dev server
+./scripts/start-all.sh       # Запуск всего
+npm run dev                  # Только frontend
+python -m backend.main       # Только backend
 
-# Деплой
-npm run build            # Build frontend
-modal deploy modal/app.py # Deploy backend
+# Production build
+npm run build
+npm start
 
 # Линтинг
 npm run lint
@@ -178,10 +191,7 @@ npm run lint
 
 ---
 
-## Заметки для разработки
+## Документация
 
-- SSE используется для real-time прогресса (data processing, training, chunking)
-- JWT токены хранятся в httpOnly cookies
-- Middleware защищает все маршруты кроме /login и /api/auth
-- wavesurfer.js требует клиентского рендеринга ('use client')
-- Silero VAD загружается через torch.hub
+- [DEPLOY.md](./DEPLOY.md) — план деплоя на GPU сервер
+- [USAGE.md](./USAGE.md) — руководство пользователя

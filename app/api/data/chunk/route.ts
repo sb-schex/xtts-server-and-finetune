@@ -80,14 +80,14 @@ async function processChunkingAsync(jobId: string, params: ChunkRequest) {
     job.message = "Analyzing audio with VAD...";
     job.progress = 5;
 
-    const modalApiUrl = process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
 
-    if (modalApiUrl) {
-      // Call Modal API for chunking
+    if (backendUrl) {
+      // Call backend API for chunking
       job.message = "Starting VAD chunking on GPU...";
       job.progress = 10;
 
-      const response = await fetch(`${modalApiUrl}/api/data/chunk`, {
+      const response = await fetch(`${backendUrl}/api/data/chunk`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

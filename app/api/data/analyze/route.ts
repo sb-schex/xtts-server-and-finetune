@@ -20,11 +20,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const modalApiUrl = process.env.MODAL_API_URL;
+    const backendUrl = process.env.BACKEND_URL || process.env.MODAL_API_URL;
 
-    if (modalApiUrl) {
-      // Call Modal API for VAD analysis
-      const response = await fetch(`${modalApiUrl}/api/data/analyze`, {
+    if (backendUrl) {
+      // Call backend API for VAD analysis
+      const response = await fetch(`${backendUrl}/api/data/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
